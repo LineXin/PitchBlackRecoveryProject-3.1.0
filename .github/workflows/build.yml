@@ -37,13 +37,12 @@ jobs:
         # Для MT6765 (Redmi 9C/9A) ветка android-11.0 — самый стабильный выбор
         repo init --depth=1 -u https://github.com/LineXin/PitchBlackRecoveryProject-3.1.0 -b android-12.1
         repo sync -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags
-
-    - name: Clone Device Tree
-      run: |
+        
+       - name: Clone Device Tree
+         run: |
         cd workspace
-        # ЗАМЕНИ ССЫЛКУ НИЖЕ НА СВОЁ ДЕРЕВО (angelica/dandelion/blossom)
-        git clone https://github.com/blossomat24/recovery_device_xiaomi_blossom -b main device/xiaomi/blossom
-
+        # Пробуем клонировать. Если ветки main нет, git сам скажет об этом.
+        git clone https://github.com/blossomat24/recovery_device_xiaomi_blossom device/xiaomi/blossom
     - name: Build PitchBlack
       run: |
         cd workspace
