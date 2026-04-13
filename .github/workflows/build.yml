@@ -1,7 +1,7 @@
 name: Build PBRP for blossom
 
 on:
-  workflow_dispatch: # Запуск вручную
+  workflow_dispatch:
 
 jobs:
   build:
@@ -28,25 +28,24 @@ jobs:
         chmod a+x ~/bin/repo
         sudo cp ~/bin/repo /usr/local/bin/repo
 
-    - name: Initialize and Sync PBRP Manifest
+    - name: Sync PBRP Manifest
       run: |
-        mkdir workspace
-        cd workspace
+        mkdir workspace && cd workspace
         git config --global user.name "LineXin"
         git config --global user.email "linexin@github.com"
-        # Для MT6765 (Redmi 9C/9A) ветка android-11.0 — самый стабильный выбор
         repo init --depth=1 -u https://github.com/LineXin/PitchBlackRecoveryProject-3.1.0 -b android-12.1
         repo sync -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags
-               - name: Clone Device Tree
-                 run: |
-                 cd workspace
-                 # Пробуем клонировать. Если ветки main нет, git сам скажет об этом.
-                 git clone https://github.com/blossomat24/recovery_device_xiaomi_blossom device/xiaomi/blossom
+
+    - name: Clone Device Tree
+      run: |
+        cd workspace
+        # Клонируем дерево. Если ветка не main, Git сам подхватит дефолтную.
+        git clone https://github.com/blossomat24/recovery_device_xiaomi_blossom device/xiaomi/blossom
+
     - name: Build PitchBlack
       run: |
         cd workspace
         export ALLOW_MISSING_DEPENDENCIES=true
-        # Флаг для игнорирования дубликатов в дереве (часто нужно для Xiaomi)
         export BUILD_BROKEN_DUP_RULES=true 
         source build/envsetup.sh
         lunch pbrp_blossom-eng
