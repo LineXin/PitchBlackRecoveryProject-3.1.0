@@ -5,7 +5,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-20.04 # Используем 20.04, она стабильнее для старых веток Android
+    runs-on: ubuntu-22.04 # Используем 22.04, она стабильнее для старых веток Android
     
     steps:
     - name: Checkout repository
