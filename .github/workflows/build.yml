@@ -1,128 +1,56 @@
-name: PBRP by LineXin
+name: PBRP Builder
 
 on:
 workflow_dispatch:
 
-TZ: Asia/Almaty
-
+jobs:
 build:
 runs-on: ubuntu-latest
 timeout-minutes: 360
 
+```
 steps:
+  - name: Start message
+    run: |
+      echo "Build started"
 
-- name: 📢 Telegram Start
-  run: |
-    curl -s -X POST https://api.telegram.org/bot${{ secrets.TG_TOKEN }}/sendMessage \
-    -d chat_id=${{ secrets.TG_CHAT_ID }} \
-    -d text="🚀 Build started!"
+  - name: Install dependencies
+    run: |
+      sudo apt update
+      sudo apt install -y git curl python3 python-is-python3 repo openjdk-11-jdk bc bison build-essential zip ccache flex libssl-dev libncurses5-dev lzop libxml2-utils xsltproc unzip
 
-- name: 🧹 Cleanup
-  run: |
-    rm -rf *
-    sudo apt-get clean
+  - name: Setup repo
+    run: |
+      mkdir -p ~/bin
+      curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
+      chmod +x ~/bin/repo
+      echo "$HOME/bin" >> $GITHUB_PATH
 
-- name: 📦 Install dependencies
-  run: |
-    sudo apt update
-    sudo apt install -y \
-    git curl python3 python-is-python3 repo \
-    openjdk-11-jdk bc bison build-essential zip ccache flex \
-    libssl-dev libncurses5-dev lzop libxml2-utils xsltproc unzip \
-    libtinfo5 libncurses5 wget
+  - name: Init
+    run: |
+      mkdir ~/pbrp
+      cd ~/pbrp
+      repo init -u https://github.com/PitchBlackRecoveryProject/manifest_pb -b android-12.1
 
-- name: ⚙️ Setup repo tool
-  run: |
-    mkdir -p ~/bin
-    curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
-    chmod +x ~/bin/repo
-    echo "export PATH=~/bin:$PATH" >> $GITHUB_ENV
+  - name: Sync
+    run: |
+      cd ~/pbrp
+      repo sync -c -j$(nproc) --no-clone-bundle --no-tags
 
-- name: 📁 Create workspace
-  run: |
-    mkdir -p ~/pbrp
-    cd ~/pbrp
+  - name: Clone device
+    run: |
+      cd ~/pbrp
+      git clone https://github.com/blossomat24/recovery_device_xiaomi_blossom device/xiaomi/blossom
 
-- name: 🔄 Repo init
-  run: |
-    cd ~/pbrp
-    repo init -u https://github.com/PitchBlackRecoveryProject/manifest_pb -b android-12.1
+  - name: Build
+    run: |
+      cd ~/pbrp
+      source build/envsetup.sh
+      lunch pb_blossom-eng
+      mka pbrp
 
-- name: 📥 Repo sync
-  run: |
-    cd ~/pbrp
-    repo sync -c --no-clone-bundle --no-tags --optimized-fetch --prune -j$(nproc)
-
-- name: 📢 Sync Done
-  run: |
-    curl -s -X POST https://api.telegram.org/bot${{ secrets.TG_TOKEN }}/sendMessage \
-    -d chat_id=${{ secrets.TG_CHAT_ID }} \
-    -d text="📥 Repo sync finished!"
-
-- name: 🌳 Clone device tree
-  run: |
-    cd ~/pbrp
-    git clone https://github.com/blossomat24/recovery_device_xiaomi_blossom device/xiaomi/blossom
-
-- name: 🔍 Show tree
-  run: |
-    cd ~/pbrp/device/xiaomi/blossom
-    ls -la
-
-- name: ⚙️ Env setup
-  run: |
-    cd ~/pbrp
-    source build/envsetup.sh || true
-
-- name: 🍱 Lunch
-  run: |
-    cd ~/pbrp
-    source build/envsetup.sh
-    lunch pb_blossom-eng
-
-- name: 🔨 Build
-  run: |
-    cd ~/pbrp
-    source build/envsetup.sh
-    mka pbrp -j$(nproc)
-
-- name: 📢 Build Success
-  if: success()
-  run: |
-    curl -s -X POST https://api.telegram.org/bot${{ secrets.TG_TOKEN }}/sendMessage \
-    -d chat_id=${{ secrets.TG_CHAT_ID }} \
-    -d text="✅ Build finished successfully!"
-
-- name: 📢 Build Failed
-  if: failure()
-  run: |
-    curl -s -X POST https://api.telegram.org/bot${{ secrets.TG_TOKEN }}/sendMessage \
-    -d chat_id=${{ secrets.TG_CHAT_ID }} \
-    -d text="❌ Build failed!"
-
-- name: 📦 Upload artifact
-  uses: actions/upload-artifact@v4
-  with:
-    name: PBRP-Recovery
-    path: ~/pbrp/out/target/product/blossom/recovery.img
-
-- name: 📢 Upload Done
-  run: |
-    curl -s -X POST https://api.telegram.org/bot${{ secrets.TG_TOKEN }}/sendMessage \
-    -d chat_id=${{ secrets.TG_CHAT_ID }} \
-    -d text="📦 Artifact uploaded!"
-
-- name: 🧠 Disk usage
-  run: |
-    df -h
-
-- name: 🧾 Final log
-  run: |
-    echo "Build completed at $(date)"
-
-- name: 🔚 Done message
-  run: |
-    curl -s -X POST https://api.telegram.org/bot${{ secrets.TG_TOKEN }}/sendMessage \
-    -d chat_id=${{ secrets.TG_CHAT_ID }} \
-    -d text="🏁 Workflow completed!"
-
+  - name: Upload
+    uses: actions/upload-artifact@v4
+    with:
+      name: recovery
+      path: ~/pbrp/out/target/product/blossom/recovery.img
