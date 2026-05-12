@@ -1,4 +1,4 @@
-name: PBRP Builder
+name: PBRP for blossom
 
 on:
   workflow_dispatch:
@@ -54,7 +54,7 @@ jobs:
 
           git clone \
             --depth=1 \
-            https://github.com/LineXin/recovery_device_xiaomi_blossom \
+            https://github.com/blossomat24/recovery_device_xiaomi_blossom \
             device/xiaomi/blossom
 
       - name: 📂 Check cloned files
