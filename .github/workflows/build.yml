@@ -78,7 +78,7 @@ jobs:
       - name: 🌳 Clone device tree
         run: |
           cd ~/pbrp
-          git clone https://github.com/blossomat24/recovery_device_xiaomi_blossom device/xiaomi/blossom
+          git clone https://github.com/LineXin/recovery_device_xiaomi_blossom device/xiaomi/blossom
 
       - name: 📂 Check tree
         run: |
