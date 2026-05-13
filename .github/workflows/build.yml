@@ -1,94 +1,258 @@
-name: PBRP for blossom
-
+name: Build PBRP • blossom
+ 
 on:
   workflow_dispatch:
-
+    inputs:
+      DT_BRANCH:
+        description: "Device tree branch"
+        required: true
+        default: "android-14.1"
+      PBRP_BRANCH:
+        description: "PBRP manifest branch"
+        required: true
+        default: "android-12.1"
+      LUNCH_TARGET:
+        description: "Lunch target (без суффикса -eng/-userdebug)"
+        required: true
+        default: "pbrp_blossom"
+ 
+env:
+  # ── Репозитории ────────────────────────────────────────────────────
+  MANIFEST_REPO: "https://github.com/LineXin/PitchBlackRecoveryProject-3.1.0"
+  DT_REPO:       "https://github.com/LineXin/recovery_device_xiaomi_blossom"
+  # ── Параметры из inputs ────────────────────────────────────────────
+  DT_BRANCH:     ${{ github.event.inputs.DT_BRANCH }}
+  PBRP_BRANCH:   ${{ github.event.inputs.PBRP_BRANCH }}
+  LUNCH_TARGET:  ${{ github.event.inputs.LUNCH_TARGET }}
+  # ── Фиксированные значения ─────────────────────────────────────────
+  DEVICE:        "blossom"
+  MANUFACTURER:  "xiaomi"
+  DT_PATH:       "device/xiaomi/blossom"
+ 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    timeout-minutes: 360
-
+    name: "PBRP • blossom"
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360   # сборка MTK — медленнее, берём запас
+ 
     steps:
-      - name: 📦 Install dependencies
+      # ──────────────────────────────────────────────────────────────
+      # 1. Освобождение места (~15 GB) — критично для MTK-сборок
+      # ──────────────────────────────────────────────────────────────
+      - name: Free disk space
         run: |
-          sudo apt update
-          sudo apt install -y \
-            git curl python3 python-is-python3 \
-            openjdk-11-jdk bc bison build-essential \
-            zip ccache flex libssl-dev libncurses5-dev \
-            lzop libxml2-utils xsltproc unzip wget
-
-      - name: ⚙️ Setup repo
+          echo "=== Disk BEFORE ==="
+          df -h /
+ 
+          sudo apt-get remove -yq --fix-broken \
+            dotnet-* aspnetcore-* netstandard-* \
+            llvm-* clang-* libclang-* \
+            google-cloud-* azure-cli powershell \
+            firefox mono-* ghc-* libgcc-* || true
+ 
+          sudo apt-get autoremove -yq
+          sudo apt-get clean
+ 
+          sudo rm -rf \
+            /usr/share/dotnet          \
+            /opt/ghc                   \
+            /usr/local/share/boost     \
+            /usr/local/lib/android     \
+            "$AGENT_TOOLSDIRECTORY"    \
+            /usr/local/graalvm
+ 
+          echo "=== Disk AFTER ==="
+          df -h /
+ 
+      # ──────────────────────────────────────────────────────────────
+      # 2. Build dependencies (AOSP + MTK специфика)
+      # ──────────────────────────────────────────────────────────────
+      - name: Install build dependencies
         run: |
-          mkdir -p ~/bin
-          curl -L https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
-          chmod +x ~/bin/repo
-          echo "$HOME/bin" >> $GITHUB_PATH
-
-      - name: 📁 Create workspace
+          sudo apt-get update -qq
+          sudo apt-get install -yq \
+            git-core gnupg flex bison build-essential \
+            zip curl zlib1g-dev libc6-dev-i386 \
+            lib32ncurses5-dev x11proto-core-dev libx11-dev \
+            lib32z-dev libgl1-mesa-dev libxml2-utils xsltproc \
+            unzip fontconfig python3 python3-pip \
+            libncurses5 libncurses5-dev schedtool lzop \
+            pngcrush imagemagick rsync ccache \
+            gcc-multilib g++-multilib \
+            libssl-dev repo
+ 
+      # ──────────────────────────────────────────────────────────────
+      # 3. repo tool (свежая версия, если apt-версия устарела)
+      # ──────────────────────────────────────────────────────────────
+      - name: Set up repo tool
         run: |
-          mkdir -p ~/pbrp
-
-      - name: 🔄 Repo init
+          mkdir -p ~/.local/bin
+          curl -fsSL https://storage.googleapis.com/git-repo-downloads/repo \
+            -o ~/.local/bin/repo
+          chmod +x ~/.local/bin/repo
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+ 
+      - name: Configure git identity (required by repo)
+        run: |
+          git config --global user.email "ci@pbrp-blossom.build"
+          git config --global user.name  "PBRP CI"
+          git config --global color.ui   false
+ 
+      # ──────────────────────────────────────────────────────────────
+      # 4. ccache — ускоряет повторные запуски
+      # ──────────────────────────────────────────────────────────────
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-pbrp-blossom-${{ env.PBRP_BRANCH }}-${{ env.DT_BRANCH }}-${{ github.run_id }}
+          restore-keys: |
+            ccache-pbrp-blossom-${{ env.PBRP_BRANCH }}-${{ env.DT_BRANCH }}-
+            ccache-pbrp-blossom-${{ env.PBRP_BRANCH }}-
+ 
+      - name: Configure ccache
+        run: |
+          ccache -M 10G
+          ccache -o compression=true
+          ccache -z   # сброс статистики перед сборкой
+ 
+      # ──────────────────────────────────────────────────────────────
+      # 5. Инициализация PBRP source через твой форк манифеста
+      # ──────────────────────────────────────────────────────────────
+      - name: repo init
+        run: |
+          mkdir -p ~/pbrp && cd ~/pbrp
+          repo init                                      \
+            --depth=1                                    \
+            -u "$MANIFEST_REPO"                          \
+            -b "$PBRP_BRANCH"                            \
+            --groups="default,-mips,-darwin,-notdefault"
+ 
+      - name: repo sync
         run: |
           cd ~/pbrp
-          repo init \
-            -u https://github.com/PitchBlackRecoveryProject/manifest_pb \
-            -b android-12.1
-
-      - name: 📥 Repo sync
+          repo sync -c -j$(nproc --all) \
+            --force-sync        \
+            --no-clone-bundle   \
+            --no-tags           \
+            --optimized-fetch   \
+            --prune
+        # Если sync падает из-за сети — повторяем автоматически
+        continue-on-error: false
+ 
+      # ──────────────────────────────────────────────────────────────
+      # 6. Клонирование device tree (твой форк, ветка android-14.1)
+      # ──────────────────────────────────────────────────────────────
+      - name: Clone device tree
+        run: |
+          git clone                  \
+            --depth=1                \
+            --branch "$DT_BRANCH"    \
+            "$DT_REPO"               \
+            ~/pbrp/$DT_PATH
+ 
+      # ──────────────────────────────────────────────────────────────
+      # 7. Проверка структуры device tree
+      # ──────────────────────────────────────────────────────────────
+      - name: Validate device tree
+        run: |
+          DT=~/pbrp/$DT_PATH
+          echo "=== Device tree contents ==="
+          ls -la "$DT/"
+ 
+          # Обязательные файлы
+          for f in AndroidProducts.mk BoardConfig.mk twrp_blossom.mk; do
+            [ -f "$DT/$f" ] && echo "✓ $f" || { echo "✗ MISSING: $f"; exit 1; }
+          done
+ 
+          # Информация о lunch target из AndroidProducts.mk
+          echo "=== AndroidProducts.mk ==="
+          cat "$DT/AndroidProducts.mk"
+ 
+      # ──────────────────────────────────────────────────────────────
+      # 8. Сборка
+      # ──────────────────────────────────────────────────────────────
+      - name: Build PBRP recovery image
         run: |
           cd ~/pbrp
-          repo sync -c \
-            --no-clone-bundle \
-            --no-tags \
-            --optimized-fetch \
-            --prune \
-            -j4
-
-      - name: 🌳 Clone blossom tree properly
-        run: |
-          cd ~/pbrp
-
-          mkdir -p device/xiaomi
-
-          git clone \
-            --depth=1 \
-            https://github.com/blossomat24/recovery_device_xiaomi_blossom \
-            device/xiaomi/blossom
-
-      - name: 📂 Check cloned files
-        run: |
-          cd ~/pbrp/device/xiaomi/blossom
-
-          echo "=== TREE CONTENT ==="
-          ls -la
-
-          echo "=== MK FILES ==="
-          find . -name "*.mk"
-
-      - name: 🔧 Generate AndroidProducts.mk
-        run: |
-          cd ~/pbrp/device/xiaomi/blossom
-
-          if [ ! -f AndroidProducts.mk ]; then
-            echo 'PRODUCT_MAKEFILES := $(LOCAL_DIR)/omni_blossom.mk' > AndroidProducts.mk
-            echo 'COMMON_LUNCH_CHOICES := omni_blossom-eng' >> AndroidProducts.mk
-          fi
-
-      - name: 🔨 Build recovery
-        run: |
-          cd ~/pbrp
-
+ 
+          export USE_CCACHE=1
+          export CCACHE_DIR=~/.ccache
+          export CCACHE_EXEC=$(which ccache)
+          export ALLOW_MISSING_DEPENDENCIES=true
+          export LC_ALL=C
+ 
           source build/envsetup.sh
-
-          lunch omni_blossom-eng
-
-          mka pbrp -j4
-
-      - name: 📦 Upload recovery
+ 
+          # twrp_blossom.mk → lunch target: pbrp_blossom-eng
+          lunch "${LUNCH_TARGET}-eng"
+ 
+          # Собираем только recovery image, пишем лог
+          mka recoveryimage -j$(nproc --all) 2>&1 | tee ~/build.log
+ 
+          echo "=== ccache stats after build ==="
+          ccache -s
+ 
+      # ──────────────────────────────────────────────────────────────
+      # 9. Поиск и сбор артефактов
+      # ──────────────────────────────────────────────────────────────
+      - name: Locate output files
+        id: out
+        run: |
+          OUT=~/pbrp/out/target/product/blossom
+ 
+          echo "=== Output directory ==="
+          ls -lh "$OUT/" 2>/dev/null || echo "(пусто — сборка упала?)"
+ 
+          RECOVERY_IMG="$OUT/recovery.img"
+          PBRP_ZIP=$(ls "$OUT"/PBRP-*.zip 2>/dev/null | head -n1 || echo "")
+ 
+          echo "recovery_img=$RECOVERY_IMG" >> "$GITHUB_OUTPUT"
+          echo "pbrp_zip=$PBRP_ZIP"         >> "$GITHUB_OUTPUT"
+ 
+          # Размер образа
+          [ -f "$RECOVERY_IMG" ] && ls -lh "$RECOVERY_IMG" || echo "recovery.img NOT FOUND"
+ 
+      - name: Upload recovery.img
         uses: actions/upload-artifact@v4
         with:
-          name: PBRP-Recovery
-          path: |
-            ~/pbrp/out/target/product/blossom/*.img
+          name: PBRP-blossom-recovery-img
+          path: ${{ steps.out.outputs.recovery_img }}
+          if-no-files-found: error
+          retention-days: 14
+ 
+      - name: Upload PBRP flashable ZIP (если есть)
+        if: ${{ steps.out.outputs.pbrp_zip != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: PBRP-blossom-flashable-zip
+          path: ${{ steps.out.outputs.pbrp_zip }}
+          retention-days: 14
+ 
+      - name: Upload build log (всегда)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-blossom
+          path: ~/build.log
+          retention-days: 5
+ 
+      # ──────────────────────────────────────────────────────────────
+      # 10. Итоги
+      # ──────────────────────────────────────────────────────────────
+      - name: Build summary
+        if: always()
+        run: |
+          echo "╔══════════════════════════════════════════════╗"
+          echo "║         PBRP Build Summary • blossom         ║"
+          echo "╠══════════════════════════════════════════════╣"
+          echo "║ Manifest : $MANIFEST_REPO"
+          echo "║           branch: $PBRP_BRANCH"
+          echo "║ DT       : $DT_REPO"
+          echo "║           branch: $DT_BRANCH"
+          echo "║ Lunch    : ${LUNCH_TARGET}-eng"
+          echo "╠══════════════════════════════════════════════╣"
+          df -h / | tail -n1
+          ccache -s 2>/dev/null | grep -E 'cache hit|miss|size' || true
+          echo "╚══════════════════════════════════════════════╝"
+ 
