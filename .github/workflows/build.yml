@@ -1,6 +1,5 @@
 name: Build PBRP • blossom
- 
-on:
+on: 
   workflow_dispatch:
     inputs:
       DT_BRANCH:
@@ -15,7 +14,7 @@ on:
         description: "Lunch target (без суффикса)"
         required: true
         default: "twrp_blossom"
- 
+
 env:
   MANIFEST_REPO: "https://github.com/LineXin/PitchBlackRecoveryProject-3.1.0"
   DT_REPO:       "https://github.com/LineXin/recovery_device_xiaomi_blossom"
@@ -25,13 +24,17 @@ env:
   DEVICE:        "blossom"
   MANUFACTURER:  "xiaomi"
   DT_PATH:       "device/xiaomi/blossom"
- 
+
 jobs:
   build:
     name: "PBRP • blossom"
     runs-on: ubuntu-22.04
     timeout-minutes: 360
- 
+    
+    # Добавляем права на запись, чтобы создать релиз
+    permissions:
+      contents: write
+
     steps:
       - name: Free disk space
         run: |
@@ -44,7 +47,7 @@ jobs:
           sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost \
             /usr/local/lib/android "$AGENT_TOOLSDIRECTORY" || true
           df -h /
- 
+
       - name: Install build dependencies
         run: |
           sudo apt-get update -qq
@@ -57,7 +60,7 @@ jobs:
             libncurses5 libncurses5-dev schedtool lzop \
             pngcrush imagemagick rsync ccache \
             gcc-multilib g++-multilib libssl-dev
- 
+
       - name: Set up repo tool
         run: |
           mkdir -p ~/.local/bin
@@ -65,26 +68,26 @@ jobs:
             -o ~/.local/bin/repo
           chmod +x ~/.local/bin/repo
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
- 
+
       - name: Configure git
         run: |
           git config --global user.email "ci@pbrp.build"
           git config --global user.name  "PBRP CI"
           git config --global color.ui   false
- 
+
       - name: Restore ccache
         uses: actions/cache@v4
         with:
           path: ~/.ccache
           key: ccache-pbrp-blossom-${{ env.PBRP_BRANCH }}-${{ github.run_id }}
           restore-keys: ccache-pbrp-blossom-${{ env.PBRP_BRANCH }}-
- 
+
       - name: Configure ccache
         run: |
           ccache -M 10G
           ccache -o compression=true
           ccache -z
- 
+
       - name: repo init
         run: |
           mkdir -p ~/pbrp && cd ~/pbrp
@@ -93,7 +96,7 @@ jobs:
             -u "$MANIFEST_REPO" \
             -b "$PBRP_BRANCH" \
             --groups="default,-mips,-darwin,-notdefault"
- 
+
       - name: repo sync
         run: |
           cd ~/pbrp
@@ -103,7 +106,7 @@ jobs:
             --no-tags \
             --optimized-fetch \
             --prune
- 
+
       - name: Clone device tree
         run: |
           git clone \
@@ -111,7 +114,7 @@ jobs:
             --branch "$DT_BRANCH" \
             "$DT_REPO" \
             ~/pbrp/$DT_PATH
- 
+
       - name: Inspect device tree
         run: |
           DT=~/pbrp/$DT_PATH
@@ -123,47 +126,38 @@ jobs:
           cat "$DT/vendorsetup.sh" 2>/dev/null || echo "NOT FOUND"
           echo "=== PRODUCT_NAME в .mk файлах ==="
           grep -r "PRODUCT_NAME" "$DT/" --include="*.mk" | head -20
- 
+
       - name: Build PBRP
         run: |
           cd ~/pbrp
- 
           export USE_CCACHE=1
           export CCACHE_DIR=~/.ccache
           export CCACHE_EXEC=$(which ccache)
           export ALLOW_MISSING_DEPENDENCIES=true
           export LC_ALL=C
- 
           source build/envsetup.sh
- 
           echo "=== lunch: ${LUNCH_TARGET}-eng ==="
           lunch "${LUNCH_TARGET}-eng"
- 
           echo "=== Building recoveryimage ==="
-          # || true — чтобы следующие шаги не пропускались при ошибке сборки
           mka recoveryimage -j$(nproc --all) 2>&1 | tee ~/build.log || true
- 
           echo ""
           echo "========================================"
           echo "=== ПОСЛЕДНИЕ 100 СТРОК BUILD LOG ==="
           echo "========================================"
           tail -100 ~/build.log
- 
+
       - name: Find output files
         if: always()
         run: |
           echo "=== recovery.img в out/ ==="
           find ~/pbrp/out -name "recovery.img" 2>/dev/null || echo "НЕ НАЙДЕН"
- 
           echo "=== out/target/product/ ==="
           ls -la ~/pbrp/out/target/product/ 2>/dev/null || echo "(не существует)"
- 
           echo "=== Все .img ==="
           find ~/pbrp/out -name "*.img" 2>/dev/null | head -20 || echo "нет .img"
- 
           echo "=== Все .zip ==="
           find ~/pbrp/out -name "*.zip" 2>/dev/null | head -10 || echo "нет .zip"
- 
+
       - name: Collect artifacts
         if: always()
         id: out
@@ -174,7 +168,7 @@ jobs:
           echo "pbrp_zip=${PBRP_ZIP}"         >> "$GITHUB_OUTPUT"
           echo "Found recovery.img: ${RECOVERY_IMG:-NONE}"
           echo "Found PBRP zip:     ${PBRP_ZIP:-NONE}"
- 
+
       - name: Upload recovery.img
         if: ${{ steps.out.outputs.recovery_img != '' }}
         uses: actions/upload-artifact@v4
@@ -182,7 +176,7 @@ jobs:
           name: PBRP-blossom-recovery-img
           path: ${{ steps.out.outputs.recovery_img }}
           retention-days: 14
- 
+
       - name: Upload PBRP ZIP
         if: ${{ steps.out.outputs.pbrp_zip != '' }}
         uses: actions/upload-artifact@v4
@@ -190,7 +184,7 @@ jobs:
           name: PBRP-blossom-zip
           path: ${{ steps.out.outputs.pbrp_zip }}
           retention-days: 14
- 
+
       - name: Upload build log
         if: always()
         uses: actions/upload-artifact@v4
@@ -199,10 +193,21 @@ jobs:
           path: ~/build.log
           if-no-files-found: ignore
           retention-days: 5
- 
+
       - name: Summary
         if: always()
         run: |
           df -h /
           ccache -s 2>/dev/null | grep -E 'hit|miss|size' || true
- 
+
+      - name: Create Release
+        if: ${{ steps.out.outputs.recovery_img != '' || steps.out.outputs.pbrp_zip != '' }}
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: PBRP-blossom-${{ github.run_id }}
+          name: PBRP Build ${{ github.run_number }}
+          files: |
+            ${{ steps.out.outputs.recovery_img }}
+            ${{ steps.out.outputs.pbrp_zip }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
