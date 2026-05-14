@@ -6,7 +6,7 @@ on:
       DT_BRANCH:
         description: "Device tree branch"
         required: true
-        default: "android-14.1"
+        default: "android-12.1"
       PBRP_BRANCH:
         description: "PBRP manifest branch"
         required: true
@@ -14,12 +14,12 @@ on:
       LUNCH_TARGET:
         description: "Lunch target (без суффикса -eng/-userdebug)"
         required: true
-        default: "pbrp_blossom"
+        default: "twrp_blossom"
  
 env:
   # ── Репозитории ────────────────────────────────────────────────────
   MANIFEST_REPO: "https://github.com/LineXin/PitchBlackRecoveryProject-3.1.0"
-  DT_REPO:       "https://github.com/MrGadget84/recovery_device_xiaomi_blossom"
+  DT_REPO:       "https://github.com/LineXin/recovery_device_xiaomi_blossom"
   # ── Параметры из inputs ────────────────────────────────────────────
   DT_BRANCH:     ${{ github.event.inputs.DT_BRANCH }}
   PBRP_BRANCH:   ${{ github.event.inputs.PBRP_BRANCH }}
