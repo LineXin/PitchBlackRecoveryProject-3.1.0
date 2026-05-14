@@ -31,7 +31,6 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 360
     
-    # Добавляем права на запись, чтобы создать релиз
     permissions:
       contents: write
 
@@ -78,12 +77,14 @@ jobs:
       - name: Restore ccache
         uses: actions/cache@v4
         with:
-          path: ~/.ccache
+          path: /home/runner/pbrp/.ccache
           key: ccache-pbrp-blossom-${{ env.PBRP_BRANCH }}-${{ github.run_id }}
           restore-keys: ccache-pbrp-blossom-${{ env.PBRP_BRANCH }}-
 
       - name: Configure ccache
         run: |
+          mkdir -p /home/runner/pbrp/.ccache
+          export CCACHE_DIR=/home/runner/pbrp/.ccache
           ccache -M 10G
           ccache -o compression=true
           ccache -z
@@ -120,18 +121,12 @@ jobs:
           DT=~/pbrp/$DT_PATH
           echo "=== DT files ==="
           ls -la "$DT/"
-          echo "=== AndroidProducts.mk ==="
-          cat "$DT/AndroidProducts.mk" 2>/dev/null || echo "NOT FOUND"
-          echo "=== vendorsetup.sh ==="
-          cat "$DT/vendorsetup.sh" 2>/dev/null || echo "NOT FOUND"
-          echo "=== PRODUCT_NAME в .mk файлах ==="
-          grep -r "PRODUCT_NAME" "$DT/" --include="*.mk" | head -20
 
       - name: Build PBRP
         run: |
           cd ~/pbrp
           export USE_CCACHE=1
-          export CCACHE_DIR=~/.ccache
+          export CCACHE_DIR=/home/runner/pbrp/.ccache
           export CCACHE_EXEC=$(which ccache)
           export ALLOW_MISSING_DEPENDENCIES=true
           export LC_ALL=C
@@ -151,12 +146,6 @@ jobs:
         run: |
           echo "=== recovery.img в out/ ==="
           find ~/pbrp/out -name "recovery.img" 2>/dev/null || echo "НЕ НАЙДЕН"
-          echo "=== out/target/product/ ==="
-          ls -la ~/pbrp/out/target/product/ 2>/dev/null || echo "(не существует)"
-          echo "=== Все .img ==="
-          find ~/pbrp/out -name "*.img" 2>/dev/null | head -20 || echo "нет .img"
-          echo "=== Все .zip ==="
-          find ~/pbrp/out -name "*.zip" 2>/dev/null | head -10 || echo "нет .zip"
 
       - name: Collect artifacts
         if: always()
@@ -166,8 +155,6 @@ jobs:
           PBRP_ZIP=$(find ~/pbrp/out -name "PBRP-*.zip" 2>/dev/null | head -n1 || echo "")
           echo "recovery_img=${RECOVERY_IMG}" >> "$GITHUB_OUTPUT"
           echo "pbrp_zip=${PBRP_ZIP}"         >> "$GITHUB_OUTPUT"
-          echo "Found recovery.img: ${RECOVERY_IMG:-NONE}"
-          echo "Found PBRP zip:     ${PBRP_ZIP:-NONE}"
 
       - name: Upload recovery.img
         if: ${{ steps.out.outputs.recovery_img != '' }}
@@ -184,21 +171,6 @@ jobs:
           name: PBRP-blossom-zip
           path: ${{ steps.out.outputs.pbrp_zip }}
           retention-days: 14
-
-      - name: Upload build log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-log-blossom
-          path: ~/build.log
-          if-no-files-found: ignore
-          retention-days: 5
-
-      - name: Summary
-        if: always()
-        run: |
-          df -h /
-          ccache -s 2>/dev/null | grep -E 'hit|miss|size' || true
 
       - name: Create Release
         if: ${{ steps.out.outputs.recovery_img != '' || steps.out.outputs.pbrp_zip != '' }}
