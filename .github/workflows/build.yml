@@ -134,7 +134,7 @@ jobs:
           echo "=== lunch: ${LUNCH_TARGET}-eng ==="
           lunch "${LUNCH_TARGET}-eng"
           echo "=== Building recoveryimage ==="
-          mka recoveryimage -j$(nproc --all) 2>&1 | tee ~/build.log || true
+          mka pbrp -j$(nproc --all) 2>&1 | tee ~/build.log || true
           echo ""
           echo "========================================"
           echo "=== ПОСЛЕДНИЕ 100 СТРОК BUILD LOG ==="
